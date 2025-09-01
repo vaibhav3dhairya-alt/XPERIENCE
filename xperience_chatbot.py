@@ -7,7 +7,7 @@ def create_maps_link(location_query):
     encoded_query = quote_plus(location_query)
     return f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
 
-# --- Mock Database for Jamshedpur Locations (with location_query) ---
+# --- Mock Database for Jamshedpur Locations ---
 Jamshedpur_DATABASE = {
     'dining': [
         {'name': 'The Blue Diamond', 'vibe': 'family', 'budget': 3, 'type': 'restaurant', 'audience': ['professional', 'family'], 'description': 'A classic spot in Bistupur for North Indian cuisine.', 'location_query': 'The Blue Diamond Restaurant, Bistupur, Jamshedpur'},
@@ -31,20 +31,18 @@ Jamshedpur_DATABASE = {
 }
 
 CATEGORIES_MAP = {
-    # The key is now what the user sees and sends back
-    "adventure & outdoors": "outdoors",
-    "dining & food": "dining",
-    "entertainment & leisure": "entertainment",
-    "shopping": "shopping" # Simplified for list message
+    "1": ("Adventure & Outdoors", "outdoors"),
+    "2": ("Dining & Food", "dining"),
+    "3": ("Entertainment & Leisure", "entertainment"),
+    "4": ("Cultural & Shopping", "shopping")
 }
 
-# Session management remains the same
 user_sessions = {}
 
 def generate_places_response(places_list, intro_text):
     """Generates a formatted string with place details and map links."""
     if not places_list:
-        return "Sorry, I couldn't find anything matching your criteria. Let's try again?"
+        return "Sorry, I couldn't find anything matching your criteria."
     
     response = intro_text + "\n\n"
     for place in places_list:
@@ -55,22 +53,39 @@ def generate_places_response(places_list, intro_text):
             f"_{place['description']}_\n"
             f"🗺️ Directions: {maps_link}\n\n"
         )
-    # The thank you message is now added in the web server file along with the button
+    
+    response += "Thank you for using Xperience! ✨\n\nType 'Hi' to return to the main menu."
     return response
 
-def handle_category_selection(user_id, message):
-    """Handles the selection from the category list."""
-    category_key = CATEGORIES_MAP.get(message.lower())
-    if category_key:
-        results = Jamshedpur_DATABASE.get(category_key, [])
-        intro = f"Here are some options for *{message}*:"
-        response_text = generate_places_response(results, intro)
-        user_sessions.pop(user_id, None)
-        # Return a tuple to signal a final response
-        return ("SEND_FINAL_RESPONSE", response_text)
-    else:
-        # Fallback if something unexpected is received
-        return "Sorry, I didn't recognize that category. Please try again."
+def handle_browse_category(user_id, message):
+    """Handles the category browsing flow."""
+    state = user_sessions.get(user_id, {})
+    if state.get('step') == 'select_category':
+        category_info = CATEGORIES_MAP.get(message)
+        if category_info:
+            category_name, category_key = category_info
+            results = Jamshedpur_DATABASE.get(category_key, [])
+            intro = f"Here are some options for *{category_name}*:"
+            response = generate_places_response(results, intro)
+            user_sessions.pop(user_id, None)
+            return response
+        else:
+            return "Invalid selection. Please choose a number from the list."
+
+    # This part starts the flow
+    user_sessions[user_id] = {'flow': 'browse', 'step': 'select_category'}
+    response = "Great! Here are the categories:\n"
+    for key, (name, _) in sorted(CATEGORIES_MAP.items()):
+        response += f"{key}. {name}\n"
+    response += "\nPlease reply with the number of the category you'd like to explore."
+    return response
+
+def handle_surprise_me():
+    """Selects and returns a random place."""
+    all_places = [place for sublist in Jamshedpur_DATABASE.values() for place in sublist]
+    random_place = random.choice(all_places)
+    intro = "🎉 Surprise! How about this? 🎉"
+    return generate_places_response([random_place], intro)
 
 def handle_personalize(user_id, message):
     """Manages the multi-step personalization flow."""
@@ -101,45 +116,37 @@ def handle_personalize(user_id, message):
                     results.append(place)
         
         intro = "Here are your personalized suggestions:"
-        response_text = generate_places_response(results, intro)
+        response = generate_places_response(results, intro)
         user_sessions.pop(user_id, None)
-        # Return a tuple to signal a final response
-        return ("SEND_FINAL_RESPONSE", response_text)
+        return response
+
     return "Something went wrong. Let's start over."
 
 def chatbot_reply(user_id, message):
-    """Main function to route user messages."""
-    msg_clean = message.strip().lower()
-
-    # Handle the new "Main Menu" button press
-    if msg_clean == "main menu":
-        return "SEND_WELCOME"
-
-    # Check for session-based flows first
+    """Main function to route user messages based on button taps or text."""
+    # Check if user is already in a multi-step conversation
     if user_id in user_sessions:
         session = user_sessions[user_id]
-        if session.get('flow') == 'browse_category':
-            return handle_category_selection(user_id, msg_clean)
-        if session.get('flow') == 'personalize':
-            return handle_personalize(user_id, msg_clean)
-    
-    # Simple keyword matching for main menu actions
-    if msg_clean == "personalize my experience":
+        if session['flow'] == 'browse':
+            return handle_browse_category(user_id, message)
+        if session['flow'] == 'personalize':
+            return handle_personalize(user_id, message)
+
+    # Use .lower() for case-insensitive matching of button text
+    msg_clean = message.strip().lower()
+
+    if msg_clean == 'personalize my experience':
         user_sessions[user_id] = {'flow': 'personalize', 'step': 'ask_role'}
-        return handle_personalize(user_id, None) # Start the flow
+        return handle_personalize(user_id, message=None)
     
-    if msg_clean == "browse categories":
-        user_sessions[user_id] = {'flow': 'browse_category'}
-        # The web server will now send the list message
-        return "SEND_CATEGORY_LIST"
-
-    if msg_clean == "surprise me!":
-        all_places = [p for sublist in Jamshedpur_DATABASE.values() for p in sublist]
-        random_place = random.choice(all_places)
-        response_text = generate_places_response([random_place], "🎉 Surprise! How about this? 🎉")
-        # Return a tuple to signal a final response
-        return ("SEND_FINAL_RESPONSE", response_text)
-
-    # Default welcome message for "Hi", "Hello", etc.
-    return "SEND_WELCOME"
+    elif msg_clean == 'browse categories':
+        # Start the browse flow, which will ask the user to type a number
+        return handle_browse_category(user_id, message=None)
+    
+    elif msg_clean == 'surprise me!':
+        return handle_surprise_me()
+    
+    else:
+        # For any other message ("Hi", "Hello", etc.), send the welcome message with buttons
+        return "SEND_WELCOME_WITH_BUTTONS"
 
