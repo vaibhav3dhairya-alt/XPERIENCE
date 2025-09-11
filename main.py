@@ -1,6 +1,7 @@
 # This is the corrected server code for your WhatsApp chatbot.
+# This version is designed for a BUTTON-ONLY experience.
 # It uses the correct 'persistent_action' parameter for interactive Quick Reply buttons
-# and implements a multi-step menu to display all 7 categories.
+# and relies on exact matches from the button text for navigation.
 
 import os
 from flask import Flask, request
@@ -18,7 +19,8 @@ app = Flask(__name__)
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp_reply():
     """
-    Handles incoming WhatsApp messages, routing them to the correct reply function.
+    Handles incoming WhatsApp messages, routing them to the correct reply function
+    based on the exact text of the button pressed.
     """
     incoming_msg = request.values.get('Body', '').strip()
     from_number = request.values.get('From')
@@ -26,42 +28,42 @@ def whatsapp_reply():
     
     print(f"Received message: '{incoming_msg}' from {from_number}")
 
-    body_lower = incoming_msg.lower()
-
     # --- Chatbot Logic Router ---
 
     # Main menu options
-    if 'hi' in body_lower or 'hello' in body_lower or incoming_msg == 'Back to Start':
+    if incoming_msg.lower() in ['hi', 'hello'] or incoming_msg == 'Back to Start':
         send_main_menu(from_number, to_number)
-
-    # Browse categories menu
     elif incoming_msg == 'Browse 7 categories':
         send_categories_menu_page_1(from_number, to_number)
-    elif incoming_msg == 'More categories (1/2)':
-        send_categories_menu_page_2(from_number, to_number)
-    elif incoming_msg == 'More categories (2/2)':
+    elif incoming_msg == 'Surprise Me':
+        send_text_reply(from_number, to_number, "This feature is coming soon! Reply 'Hi' to go back to the main menu.")
+    elif incoming_msg == 'Personalize':
+        send_text_reply(from_number, to_number, "This feature is coming soon! Reply 'Hi' to go back to the main menu.")
+
+    # Categories page 1 options
+    elif incoming_msg == '1. Adventure & Outdoors 🌲':
+         send_location_details(from_number, to_number, 'adventure')
+    elif incoming_msg == '2. Dining & Food 🍔':
+         send_location_details(from_number, to_number, 'dining')
+    elif incoming_msg == '3. More categories (1/2)':
+         send_categories_menu_page_2(from_number, to_number)
+
+    # Categories page 2 options
+    elif incoming_msg == '1. Getaways & Nature 🏞️':
+        send_location_details(from_number, to_number, 'getaways')
+    elif incoming_msg == '2. Cultural & Shopping 🛍️':
+        send_location_details(from_number, to_number, 'cultural')
+    elif incoming_msg == '3. More categories (2/2)':
         send_categories_menu_page_3(from_number, to_number)
 
-    # Category selection actions
-    elif 'Adventure & Outdoors' in incoming_msg:
-        send_location_details(from_number, to_number, 'adventure')
-    elif 'Dining & Food' in incoming_msg:
-        send_location_details(from_number, to_number, 'dining')
-    elif 'Getaways & Nature' in incoming_msg:
-        send_location_details(from_number, to_number, 'getaways')
-    elif 'Cultural & Shopping' in incoming_msg:
-        send_location_details(from_number, to_number, 'cultural')
-    elif 'Entertainment & Leisure' in incoming_msg:
+    # Categories page 3 options
+    elif incoming_msg == '1. Entertainment & Leisure 🎬':
         send_location_details(from_number, to_number, 'leisure')
-    elif 'Sports & Fitness' in incoming_msg:
+    elif incoming_msg == '2. Sports & Fitness 🏋️':
         send_location_details(from_number, to_number, 'sports')
-    elif 'Events & Wellness' in incoming_msg:
+    elif incoming_msg == '3. Events & Wellness ✨':
         send_location_details(from_number, to_number, 'events')
 
-    # Other main menu options
-    elif incoming_msg in ['Surprise Me', 'Personalize']:
-        send_text_reply(from_number, to_number, "This feature is coming soon! Reply 'Hi' to go back to the main menu.")
-    
     # Fallback for unknown messages
     else:
         send_text_reply(from_number, to_number, "Sorry, I didn't get that. Say 'Hi' to see the main menu.")
@@ -72,38 +74,51 @@ def whatsapp_reply():
 
 def send_main_menu(to_number, from_number):
     """Sends the initial greeting with 3 Quick Reply buttons."""
+    body_text = (
+        "Hi there! Welcome to Xperience, your exploration companion for Jamshedpur. 🧭\n\n"
+        "Choose a path:"
+    )
     client.messages.create(
         from_=from_number,
         to=to_number,
-        body="Hi there! Welcome to Xperience, your exploration companion for Jamshedpur. 🧭\n\nChoose a path:",
+        body=body_text,
         persistent_action=['Browse 7 categories', 'Surprise Me', 'Personalize']
     )
 
 def send_categories_menu_page_1(to_number, from_number):
     """Sends the first page of category buttons."""
+    body_text = (
+        "Let's start exploring! Pick one or see more options:"
+    )
     client.messages.create(
         from_=from_number,
         to=to_number,
-        body="Let's start exploring! Pick one or see more options:",
-        persistent_action=['Adventure & Outdoors 🌲', 'Dining & Food 🍔', 'More categories (1/2)']
+        body=body_text,
+        persistent_action=['1. Adventure & Outdoors 🌲', '2. Dining & Food 🍔', '3. More categories (1/2)']
     )
 
 def send_categories_menu_page_2(to_number, from_number):
     """Sends the second page of category buttons."""
+    body_text = (
+        "Here are more categories:"
+    )
     client.messages.create(
         from_=from_number,
         to=to_number,
-        body="Here are more categories:",
-        persistent_action=['Getaways & Nature 🏞️', 'Cultural & Shopping 🛍️', 'More categories (2/2)']
+        body=body_text,
+        persistent_action=['1. Getaways & Nature 🏞️', '2. Cultural & Shopping 🛍️', '3. More categories (2/2)']
     )
 
 def send_categories_menu_page_3(to_number, from_number):
     """Sends the final page of category buttons."""
+    body_text = (
+        "And the final options:"
+    )
     client.messages.create(
         from_=from_number,
         to=to_number,
-        body="And the final options:",
-        persistent_action=['Entertainment & Leisure 🎬', 'Sports & Fitness 🏋️', 'Events & Wellness ✨']
+        body=body_text,
+        persistent_action=['1. Entertainment & Leisure 🎬', '2. Sports & Fitness 🏋️', '3. Events & Wellness ✨']
     )
 
 def send_location_details(to_number, from_number, category):
@@ -114,27 +129,30 @@ def send_location_details(to_number, from_number, category):
             "*Jubilee Park*\nA central park with gardens, a zoo, and a laser show.\n"
             "Directions: https://maps.google.com/?q=Jubilee+Park,Jamshedpur\n\n"
             "*Dalma Wildlife Sanctuary*\nKnown for its elephants and scenic trekking routes.\n"
-            "Directions: https://maps.google.com/?q=Dalma+Wildlife+Sanctuary,Jamshedpur"
+            "Directions: https://maps.google.com/?q=Dalma+Wildlife+Sanctuary,Jamshedpur\n\n"
+            "Reply 'Hi' to return to the main menu."
         ),
         'dining': (
             "*Dining & Food* 🍔:\n\n"
             "*The Blue Diamond Restaurant*\nPopular for its North Indian and Chinese cuisine.\n"
             "Directions: https://maps.google.com/?q=The+Blue+Diamond+Restaurant,Jamshedpur\n\n"
             "*Dastarkhan*\nA well-regarded spot for authentic Mughlai dishes.\n"
-            "Directions: https://maps.google.com/?q=Dastarkhan,Jamshedpur"
+            "Directions: https://maps.google.com/?q=Dastarkhan,Jamshedpur\n\n"
+            "Reply 'Hi' to return to the main menu."
         ),
         'getaways': (
             "*Getaways & Nature* 🏞️:\n\n"
             "*Dimna Lake*\nA beautiful artificial lake at the foothills of the Dalma hills, perfect for picnics and boating.\n"
             "Directions: https://maps.google.com/?q=Dimna+Lake,Jamshedpur\n\n"
             "*Hudco Lake*\nLocated in the Telco Colony, it offers a serene environment and boating facilities.\n"
-            "Directions: https://maps.google.com/?q=Hudco+Lake,Jamshedpur"
+            "Directions: https://maps.google.com/?q=Hudco+Lake,Jamshedpur\n\n"
+            "Reply 'Hi' to return to the main menu."
         ),
         # You can add the other categories here
-        'cultural': "Coming soon: Cultural & Shopping locations!",
-        'leisure': "Coming soon: Entertainment & Leisure locations!",
-        'sports': "Coming soon: Sports & Fitness locations!",
-        'events': "Coming soon: Events & Wellness locations!",
+        'cultural': "Coming soon: Cultural & Shopping locations! Reply 'Hi' to return.",
+        'leisure': "Coming soon: Entertainment & Leisure locations! Reply 'Hi' to return.",
+        'sports': "Coming soon: Sports & Fitness locations! Reply 'Hi' to return.",
+        'events': "Coming soon: Events & Wellness locations! Reply 'Hi' to return.",
     }
     reply_text = replies.get(category, "Sorry, something went wrong.")
     send_text_reply(to_number, from_number, reply_text)
