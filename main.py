@@ -1,55 +1,78 @@
 # This is the core server code for your WhatsApp chatbot, written in Python using Flask.
-# It listens for messages from Twilio, processes them, and sends back a response.
+# It now uses the Twilio REST API to send interactive messages with buttons and lists.
 
 import os
 from flask import Flask, request
+from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
+
+# --- Twilio Configuration ---
+# Your Account SID and Auth Token are read from environment variables
+# IMPORTANT: You must set these in your Render dashboard for the bot to work.
+account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+client = Client(account_sid, auth_token)
 
 app = Flask(__name__)
 
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp_reply():
-    """Responds to incoming messages with a TwiML response."""
-    incoming_msg = request.values.get('Body', '').lower().strip()
+    """
+    Handles incoming WhatsApp messages. It sends interactive messages using the
+    Twilio REST API and returns an empty TwiML response to acknowledge the webhook.
+    """
+    incoming_msg = request.values.get('Body', '').strip()
+    from_number = request.values.get('From')
+    to_number = request.values.get('To')
     
-    # Start our TwiML response
-    resp = MessagingResponse()
-    msg = resp.message()
-    
-    print(f"Received message: {incoming_msg}") # Log incoming messages for debugging
+    print(f"Received message: '{incoming_msg}' from {from_number}")
 
     # --- Chatbot Logic ---
-    # This section replicates the flow from your design.
 
     # Initial greeting or main menu request
-    if 'hi' in incoming_msg or 'hello' in incoming_msg or 'hey' in incoming_msg:
-        response_text = (
-            "Hi there! Welcome to Xperience, your exploration companion for Jamshedpur. 🧭\n\n"
-            "Choose a path:\n"
-            "1️⃣ Personalize my experience\n"
-            "2️⃣ Browse 7 categories\n"
-            "3️⃣ Surprise Me"
+    if 'hi' in incoming_msg.lower() or 'hello' in incoming_msg.lower():
+        # This sends a message with three Quick Reply buttons.
+        client.messages.create(
+            from_=to_number,
+            to=from_number,
+            body="Hi there! Welcome to Xperience, your exploration companion for Jamshedpur. 🧭\n\nChoose a path:",
+            # The 'actions' parameter is used to define the buttons.
+            # WhatsApp only supports up to 3 reply buttons.
+            actions=[
+                {"type": "reply", "reply": {"id": "browse_cat", "title": "Browse 7 categories"}},
+                {"type": "reply", "reply": {"id": "surprise_me", "title": "Surprise Me"}},
+                {"type": "reply", "reply": {"id": "personalize", "title": "Personalize"}}
+            ]
         )
-        msg.body(response_text)
-    
-    # Browse categories command
-    elif incoming_msg == '2' or 'browse' in incoming_msg:
-        response_text = (
-            "Great! Here are the 7 categories:\n\n"
-            "*A.* Adventure & Outdoors 🌲\n"
-            "*B.* Dining & Food 🍔\n"
-            "*C.* Getaways & Nature 🏞️\n"
-            "*D.* Cultural & Shopping 🛍️\n"
-            "*E.* Entertainment & Leisure 🎬\n"
-            "*F.* Sports & Fitness 🏋️\n"
-            "*G.* Events & Wellness ✨\n\n"
-            "Reply with the letter of the category you'd like to explore!"
-        )
-        msg.body(response_text)
 
-    # Responses for each category
-    elif incoming_msg == 'a':
-        response_text = (
+    # User clicked "Browse 7 categories" button
+    elif incoming_msg == 'Browse 7 categories':
+         # This sends a "List Message" with all 7 categories.
+        client.messages.create(
+            from_=to_number,
+            to=from_number,
+            body="Great! Here are the 7 categories:",
+            # The 'actions' parameter for a list is more complex.
+            actions=[{
+                "button": "Choose a Category",
+                "sections": [{
+                    "title": "Experience Buckets",
+                    "rows": [
+                        {"id": "cat_adventure", "title": "Adventure & Outdoors 🌲"},
+                        {"id": "cat_dining", "title": "Dining & Food 🍔"},
+                        {"id": "cat_getaways", "title": "Getaways & Nature 🏞️"},
+                        {"id": "cat_cultural", "title": "Cultural & Shopping 🛍️"},
+                        {"id": "cat_leisure", "title": "Entertainment & Leisure 🎬"},
+                        {"id": "cat_sports", "title": "Sports & Fitness 🏋️"},
+                        {"id": "cat_events", "title": "Events & Wellness ✨"},
+                    ]
+                }]
+            }]
+        )
+    
+    # User selected a category from the list
+    elif incoming_msg == 'Adventure & Outdoors 🌲':
+        reply_text = (
             "*Adventure & Outdoors* 🌲:\n\n"
             "*Jubilee Park*\n"
             "A central park with gardens, a zoo, and a laser show.\n"
@@ -58,10 +81,10 @@ def whatsapp_reply():
             "Known for its elephants and scenic trekking routes.\n"
             "Directions: https://maps.google.com/?q=Dalma+Wildlife+Sanctuary,Jamshedpur"
         )
-        msg.body(response_text)
-        
-    elif incoming_msg == 'b':
-        response_text = (
+        client.messages.create(from_=to_number, to=from_number, body=reply_text)
+
+    elif incoming_msg == 'Dining & Food 🍔':
+        reply_text = (
             "*Dining & Food* 🍔:\n\n"
             "*The Blue Diamond Restaurant*\n"
             "Popular for its North Indian and Chinese cuisine.\n"
@@ -70,10 +93,10 @@ def whatsapp_reply():
             "A well-regarded spot for authentic Mughlai dishes.\n"
             "Directions: https://maps.google.com/?q=Dastarkhan,Jamshedpur"
         )
-        msg.body(response_text)
-
-    elif incoming_msg == 'c':
-        response_text = (
+        client.messages.create(from_=to_number, to=from_number, body=reply_text)
+        
+    elif incoming_msg == 'Getaways & Nature 🏞️':
+        reply_text = (
             "*Getaways & Nature* 🏞️:\n\n"
             "*Dimna Lake*\n"
             "A beautiful artificial lake at the foothills of the Dalma hills, perfect for picnics and boating.\n"
@@ -82,15 +105,23 @@ def whatsapp_reply():
             "Located in the Telco Colony, it offers a serene environment and boating facilities.\n"
             "Directions: https://maps.google.com/?q=Hudco+Lake,Jamshedpur"
         )
-        msg.body(response_text)
+        client.messages.create(from_=to_number, to=from_number, body=reply_text)
+        
+    # --- Placeholder responses for other options ---
+    elif incoming_msg in ['Surprise Me', 'Personalize', 'Cultural & Shopping 🛍️', 'Entertainment & Leisure 🎬', 'Sports & Fitness 🏋️', 'Events & Wellness ✨']:
+        client.messages.create(from_=to_number, to=from_number, body="This feature is coming soon! Reply 'Hi' to go back to the main menu.")
 
-    # Fallback message if the command is not understood
+    # Fallback message
     else:
-        msg.body("Sorry, I didn't quite get that. Please reply with 'Hi' to see the main menu again.")
+        # We only send a fallback if it's not the initial 'hi' message
+        if 'hi' not in incoming_msg.lower():
+            client.messages.create(from_=to_number, to=from_number, body="Sorry, I didn't get that. Say 'Hi' to see the main menu.")
 
+    # Return an empty response to Twilio to acknowledge receipt of the message
+    resp = MessagingResponse()
     return str(resp)
 
 if __name__ == "__main__":
-    # The port is set by Render's environment variables.
     port = int(os.environ.get('PORT', 3000))
     app.run(host='0.0.0.0', port=port)
+
