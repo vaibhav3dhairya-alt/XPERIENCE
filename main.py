@@ -1,5 +1,6 @@
 # This is the fully upgraded AI server code for your WhatsApp chatbot.
 # It uses the Gemini model for advanced NLU, personalization, and state management.
+# This version includes fixes for the NLU loop and adds smart fallback logic.
 
 import os
 import random
@@ -13,7 +14,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
 auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
 gemini_api_key = os.environ.get('GEMINI_API_KEY')
-twilio_whatsapp_number = os.environ.get('TWILIO_WHATSAPP_NUMBER') # Make sure this is set in Render
+twilio_whatsapp_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
 
 # Initialize clients
 client = Client(account_sid, auth_token)
@@ -23,7 +24,6 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 app = Flask(__name__)
 
 # --- State Management ---
-# A simple dictionary to hold conversation states for each user.
 user_sessions = {}
 
 # --- Expanded Jamshedpur Locations Database with Metadata ---
@@ -42,10 +42,11 @@ PLACES = {
             {'name': 'The Blue Diamond Restaurant', 'desc': 'Popular for its North Indian and Chinese cuisine.', 'url': 'https://maps.google.com/?q=The+Blue+Diamond+Restaurant,Jamshedpur', 'budget': 'high', 'vibe': 'family', 'group': ['date', 'friends']},
             {'name': 'Dastarkhan', 'desc': 'A well-regarded spot for authentic Mughlai dishes.', 'url': 'https://maps.google.com/?q=Dastarkhan,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'family']},
             {'name': 'Cafe Regal', 'desc': 'A cozy cafe perfect for conversations and snacks.', 'url': 'https://maps.google.com/?q=Cafe+Regal,Jamshedpur', 'budget': 'low', 'vibe': 'chill', 'group': ['date', 'solo', 'friends']},
-            {'name': 'Novelty Restaurant', 'desc': 'An old classic known for its consistent quality and diverse menu.', 'url': 'https://maps.google.com/?q=Novelty+Restaurant,Jamshedpur', 'budget': 'mid', 'vibe': 'family', 'group': ['family', 'friends']}
+            {'name': 'Novelty Restaurant', 'desc': 'An old classic known for its consistent quality and diverse menu.', 'url': 'https://maps.google.com/?q=Novelty+Restaurant,Jamshedpur', 'budget': 'mid', 'vibe': 'family', 'group': ['family', 'friends']},
+            {'name': 'Brubeck Bakery', 'desc': 'An upscale bakery & cafe with a quiet, chill ambiance, perfect for a date.', 'url': 'https://maps.google.com/?q=Brubeck+Bakery,Jamshedpur', 'budget': 'high', 'vibe': 'chill', 'group': ['date', 'solo']}
         ]
     },
-     'getaways': {
+    'getaways': {
         'title': "*Getaways & Nature* 🏞️",
         'locations': [
             {'name': 'Dimna Lake', 'desc': 'Beautiful artificial lake, perfect for picnics and boating.', 'url': 'https://maps.google.com/?q=Dimna+Lake,Jamshedpur', 'budget': 'low', 'vibe': 'chill', 'group': ['friends', 'family', 'date']},
@@ -58,38 +59,18 @@ PLACES = {
             {'name': 'P&M Hi-Tech City Centre Mall', 'desc': 'The main mall for brands, food, and movies.', 'url': 'https://maps.google.com/?q=P%26M+Hi-Tech+City+Centre+Mall,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'family']},
             {'name': 'Sakchi Market', 'desc': 'A bustling local market for street shopping and food.', 'url': 'https://maps.google.com/?q=Sakchi+Market,Jamshedpur', 'budget': 'low', 'vibe': 'social', 'group': ['friends', 'solo']}
         ]
-    },
-    'leisure': {
-        'title': "*Entertainment & Fun* 🎬",
-        'locations': [
-            {'name': 'PJP Cinema Hall', 'desc': 'A popular multiplex for watching the latest movies.', 'url': 'https://maps.google.com/?q=PJP+Cinema+Hall,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'date']},
-            {'name': 'Fun City', 'desc': 'An amusement park and gaming zone inside the P&M Mall.', 'url': 'https://maps.google.com/?q=Fun+City,P%26M+Mall,Jamshedpur', 'budget': 'low', 'vibe': 'family', 'group': ['family', 'friends']}
-        ]
-    },
-    'sports': {
-        'title': "*Sports & Fitness* 🏋️",
-        'locations': [
-            {'name': 'JRD Tata Sports Complex', 'desc': 'A large complex for various sports including football and swimming.', 'url': 'https://maps.google.com/?q=JRD+Tata+Sports+Complex,Jamshedpur', 'budget': 'low', 'vibe': 'adventure', 'group': ['solo', 'friends']},
-            {'name': 'Keenan Stadium', 'desc': 'A famous cricket stadium that has hosted international matches.', 'url': 'https://maps.google.com/?q=Keenan+Stadium,Jamshedpur', 'budget': 'low', 'vibe': 'social', 'group': ['friends']}
-        ]
-    },
-    'events': {
-        'title': "*Events & Wellness* ✨",
-        'locations': [
-            {'name': 'Tata Auditorium', 'desc': 'A key venue for cultural events, shows, and concerts in the city.', 'url': 'https://maps.google.com/?q=Tata+Auditorium,XLRI,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'date']},
-            {'name': 'Beldih Club', 'desc': 'Often hosts food festivals, concerts, and other lifestyle events.', 'url': 'https://maps.google.com/?q=Beldih+Club,Jamshedpur', 'budget': 'high', 'vibe': 'social', 'group': ['friends', 'family']}
-        ]
     }
 }
 
 
 # --- AI Core Functions ---
 
-def get_intent_and_preferences_from_ai(user_query):
+def get_intent_and_preferences_from_ai(user_query, context=""):
     """
     Uses Gemini to perform advanced NLU. Extracts intent and any user preferences.
+    Now includes context to better understand single-word answers.
     """
-    system_prompt = """
+    system_prompt = f"""
     You are a sophisticated NLU engine for a Jamshedpur city guide chatbot.
     Your task is to analyze the user's message and extract their intent and preferences.
     Respond in JSON format only.
@@ -105,26 +86,22 @@ def get_intent_and_preferences_from_ai(user_query):
     Analyze the user query and extract all available information.
     If a preference is not mentioned, its value should be null.
     'cheap' or 'inexpensive' maps to 'low' budget. 'moderate' or 'not too expensive' maps to 'mid'. 'expensive' or 'fancy' maps to 'high'.
+    
+    The current conversation context is: {context}
+    Use this context to understand single-word answers. For example, if the context is 'awaiting_vibe' and the user says 'adventure', you must extract 'adventure' as the vibe.
 
     Example 1:
     User: "Hi there"
-    Response: {"intent": "greet", "preferences": {"category": null, "budget": null, "vibe": null, "group": null}}
+    Response: {{"intent": "greet", "preferences": {{"category": null, "budget": null, "vibe": null, "group": null}}}}
 
     Example 2:
     User: "Suggest a cheap place to eat"
-    Response: {"intent": "ask_for_recommendation", "preferences": {"category": "dining", "budget": "low", "vibe": null, "group": null}}
+    Response: {{"intent": "ask_for_recommendation", "preferences": {{"category": "dining", "budget": "low", "vibe": null, "group": null}}}}
     
-    Example 3:
-    User: "Help me find something"
-    Response: {"intent": "start_personalization", "preferences": {"category": null, "budget": null, "vibe": null, "group": null}}
-
-    Example 4:
-    User: "I'm bored"
-    Response: {"intent": "ask_for_surprise", "preferences": {"category": null, "budget": null, "vibe": null, "group": null}}
-    
-    Example 5 (inside a conversation):
-    User: "not too expensive"
-    Response: {"intent": "provide_preference", "preferences": {"category": null, "budget": "mid", "vibe": null, "group": null}}
+    Example 3 (with context):
+    Context: awaiting_vibe
+    User: "adventure"
+    Response: {{"intent": "provide_preference", "preferences": {{"category": null, "budget": null, "vibe": "adventure", "group": null}}}}
     """
     try:
         response = model.generate_content(f"{system_prompt}\nUser: \"{user_query}\"\nResponse:")
@@ -138,28 +115,23 @@ def get_intent_and_preferences_from_ai(user_query):
 
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp_reply():
-    """Handles incoming messages, manages session state, and routes to AI."""
     incoming_msg = request.values.get('Body', '').strip()
     from_number = request.values.get('From')
     
     print(f"Received message: '{incoming_msg}' from {from_number}")
 
-    # Get or create a session for the user
     session = user_sessions.get(from_number, {'state': 'start', 'preferences': {}})
 
-    # --- Personalization Flow State Machine ---
     if session['state'] != 'start':
         handle_personalization_flow(from_number, incoming_msg, session)
         return str(MessagingResponse())
 
-    # --- AI-Powered Router for New Conversations ---
     ai_response = get_intent_and_preferences_from_ai(incoming_msg)
     intent = ai_response.get('intent')
     preferences = ai_response.get('preferences', {})
 
     print(f"AI Result: Intent='{intent}', Preferences='{preferences}'")
     
-    # Handle the 'personalize' keyword specifically to start the flow
     if 'personalize' in incoming_msg.lower():
         intent = 'start_personalization'
 
@@ -172,8 +144,7 @@ def whatsapp_reply():
     elif intent == 'ask_for_surprise':
         send_surprise_me(from_number)
     elif intent == 'ask_for_recommendation':
-        recommendations = filter_places(preferences)
-        send_recommendations(from_number, recommendations)
+        send_recommendations(from_number, preferences)
     else:
         send_text_reply(from_number, "Sorry, I didn't quite get that. You can ask for recommendations or say 'personalize'.")
 
@@ -181,9 +152,8 @@ def whatsapp_reply():
 
 
 def handle_personalization_flow(from_number, message, session):
-    """Manages the multi-turn conversation for gathering preferences."""
     current_state = session.get('state')
-    ai_response = get_intent_and_preferences_from_ai(message)
+    ai_response = get_intent_and_preferences_from_ai(message, context=current_state)
     new_preferences = ai_response.get('preferences', {})
 
     if current_state == 'awaiting_budget':
@@ -208,71 +178,67 @@ def handle_personalization_flow(from_number, message, session):
         group = new_preferences.get('group')
         if group:
             session['preferences']['group'] = group
-            # All preferences gathered, now filter and respond
-            recommendations = filter_places(session['preferences'])
-            send_recommendations(from_number, recommendations)
-            # Reset session for the next query
+            send_recommendations(from_number, session['preferences'])
             user_sessions.pop(from_number, None)
         else:
              send_text_reply(from_number, "I didn't get that. Are you going solo, with friends, or on a date?")
 
-    # Save the updated session if it hasn't been reset
     if from_number in user_sessions:
         user_sessions[from_number] = session
 
 
-def filter_places(preferences):
-    """Filters the PLACES database based on user preferences."""
+def filter_places(preferences, relax_criteria=None):
+    """Filters the PLACES database. Can relax one criterion if needed."""
     filtered = []
     all_places = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     
     for loc in all_places:
         match = True
-        # Check each preference. If it's set in the user's request, it must match the location's data.
-        if preferences.get('budget') and preferences['budget'] and loc['budget'] != preferences['budget']:
+        if preferences.get('budget') and relax_criteria != 'budget' and loc['budget'] != preferences['budget']:
             match = False
-        if preferences.get('vibe') and preferences['vibe'] and loc['vibe'] != preferences['vibe']:
+        if preferences.get('vibe') and relax_criteria != 'vibe' and loc['vibe'] != preferences['vibe']:
             match = False
-        if preferences.get('group') and preferences['group'] and preferences['group'] not in loc['group']:
+        if preferences.get('group') and relax_criteria != 'group' and preferences['group'] not in loc['group']:
             match = False
-        
-        # This is a simple category filter based on the 'dining' keyword etc.
-        if preferences.get('category') and preferences['category']:
-            # Find which main category key this location belongs to
-            loc_category_key = None
-            for key, val in PLACES.items():
-                if loc in val['locations']:
-                    loc_category_key = key
-                    break
+        if preferences.get('category'):
+            loc_category_key = next((key for key, val in PLACES.items() if loc in val['locations']), None)
             if loc_category_key != preferences['category']:
                 match = False
-        
         if match:
             filtered.append(loc)
     return filtered
 
 
-def send_recommendations(from_number, recommendations):
-    """Formats and sends a list of recommendations."""
+def send_recommendations(from_number, preferences):
+    """Formats and sends recommendations, with smart fallback logic."""
+    # First, try a strict search
+    recommendations = filter_places(preferences)
+    fallback_message = ""
+
+    # If no results, try relaxing criteria one by one
     if not recommendations:
-        send_text_reply(from_number, "I couldn't find any spots that match your criteria. Try being a bit broader! Say 'Hi' to start over.")
-        # Reset session if the search fails
+        for criteria in ['budget', 'vibe', 'group']:
+            relaxed_recs = filter_places(preferences, relax_criteria=criteria)
+            if relaxed_recs:
+                recommendations = relaxed_recs
+                fallback_message = f"(I couldn't find a perfect match, so I relaxed the '{criteria}' filter for you.)\n\n"
+                break
+
+    if not recommendations:
+        send_text_reply(from_number, "I couldn't find any spots that match your criteria, even with some flexibility. Try being a bit broader! Say 'Hi' to start over.")
         user_sessions.pop(from_number, None)
         return
     
-    reply_text = "Here are a few recommendations for you:\n\n"
-    # Limit to max 3 recommendations to avoid spam
+    reply_text = fallback_message + "Here are a few recommendations for you:\n\n"
     for loc in recommendations[:3]:
         reply_text += f"*{loc['name']}*\n{loc['desc']}\nDirections: {loc['url']}\n\n"
     
     reply_text += "Say 'Hi' to start a new search."
     send_text_reply(from_number, reply_text.strip())
-    # Reset session after a successful recommendation
     user_sessions.pop(from_number, None)
 
 
 def send_surprise_me(from_number):
-    """Selects a random place and sends its details."""
     all_locations = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     if not all_locations:
         send_text_reply(from_number, "I couldn't find a surprise right now.")
@@ -286,18 +252,18 @@ def send_surprise_me(from_number):
         "Say 'Hi' to start over."
     )
     send_text_reply(from_number, reply_text)
-    # Reset session after a surprise
     user_sessions.pop(from_number, None)
 
 
 def send_text_reply(from_number, text):
-    """Helper function to send a simple text message via Twilio."""
-    # This function now correctly constructs the 'from' and 'to' numbers for Twilio
-    client.messages.create(
-        from_=f'whatsapp:{twilio_whatsapp_number}', 
-        to=from_number, 
-        body=text
-    )
+    try:
+        client.messages.create(
+            from_=f'whatsapp:{twilio_whatsapp_number}', 
+            to=from_number, 
+            body=text
+        )
+    except Exception as e:
+        print(f"Error sending Twilio message: {e}")
 
 
 if __name__ == "__main__":
