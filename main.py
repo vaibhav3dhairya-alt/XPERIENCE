@@ -1,6 +1,6 @@
 # This is the fully upgraded AI server code for your WhatsApp chatbot.
 # It uses the Gemini model for advanced NLU, personalization, and state management.
-# This version includes fixes for the NLU loop and adds smart fallback logic.
+# This version integrates a selectable list for a hybrid navigation experience.
 
 import os
 import random
@@ -15,6 +15,8 @@ account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
 auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
 gemini_api_key = os.environ.get('GEMINI_API_KEY')
 twilio_whatsapp_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
+main_menu_sid = os.environ.get('TWILIO_MAIN_MENU_SID')
+category_list_sid = os.environ.get('TWILIO_CATEGORY_LIST_SID')
 
 # Initialize clients
 client = Client(account_sid, auth_token)
@@ -66,10 +68,6 @@ PLACES = {
 # --- AI Core Functions ---
 
 def get_intent_and_preferences_from_ai(user_query, context=""):
-    """
-    Uses Gemini to perform advanced NLU. Extracts intent and any user preferences.
-    Now includes context to better understand single-word answers.
-    """
     system_prompt = f"""
     You are a sophisticated NLU engine for a Jamshedpur city guide chatbot.
     Your task is to analyze the user's message and extract their intent and preferences.
@@ -88,7 +86,7 @@ def get_intent_and_preferences_from_ai(user_query, context=""):
     'cheap' or 'inexpensive' maps to 'low' budget. 'moderate' or 'not too expensive' maps to 'mid'. 'expensive' or 'fancy' maps to 'high'.
     
     The current conversation context is: {context}
-    Use this context to understand single-word answers. For example, if the context is 'awaiting_vibe' and the user says 'adventure', you must extract 'adventure' as the vibe.
+    Use this context to understand single-word answers.
 
     Example 1:
     User: "Hi there"
@@ -121,35 +119,58 @@ def whatsapp_reply():
     print(f"Received message: '{incoming_msg}' from {from_number}")
 
     session = user_sessions.get(from_number, {'state': 'start', 'preferences': {}})
-
+    
+    # Handle replies from interactive lists (which come as IDs in ButtonPayload)
+    interactive_reply_id = request.values.get('ButtonPayload')
+    if interactive_reply_id:
+        handle_interactive_reply(from_number, interactive_reply_id, session)
+        return str(MessagingResponse())
+    
+    # Handle ongoing conversation flows (like personalization or AI search)
     if session['state'] != 'start':
-        handle_personalization_flow(from_number, incoming_msg, session)
+        handle_ongoing_conversation(from_number, incoming_msg, session)
         return str(MessagingResponse())
 
-    ai_response = get_intent_and_preferences_from_ai(incoming_msg)
-    intent = ai_response.get('intent')
-    preferences = ai_response.get('preferences', {})
-
-    print(f"AI Result: Intent='{intent}', Preferences='{preferences}'")
-    
-    if 'personalize' in incoming_msg.lower():
-        intent = 'start_personalization'
-
-    if intent == 'greet':
-        send_text_reply(from_number, "Hi! I'm Xperience, your AI guide to Jamshedpur. You can ask me for recommendations (e.g., 'find a chill cafe') or say 'personalize' for a guided search.")
-    elif intent == 'start_personalization':
-        session['state'] = 'awaiting_budget'
-        user_sessions[from_number] = session
-        send_text_reply(from_number, "Great! Let's find the perfect spot. What's your budget? (e.g., cheap, moderate, or expensive)")
-    elif intent == 'ask_for_surprise':
-        send_surprise_me(from_number)
-    elif intent == 'ask_for_recommendation':
-        send_recommendations(from_number, preferences)
+    # For new conversations, a simple "Hi" or "Hello" shows the main menu
+    if incoming_msg.lower() in ['hi', 'hello', 'start', 'menu']:
+        send_main_menu(from_number)
     else:
-        send_text_reply(from_number, "Sorry, I didn't quite get that. You can ask for recommendations or say 'personalize'.")
+        # Assume any other text is an attempt at a direct AI query and start that flow
+        session['state'] = 'awaiting_freeform_query'
+        user_sessions[from_number] = session
+        handle_ongoing_conversation(from_number, incoming_msg, session)
 
     return str(MessagingResponse())
 
+def handle_interactive_reply(from_number, reply_id, session):
+    """Handles selections from the main menu or category list."""
+    if reply_id == 'ai_search':
+        session['state'] = 'awaiting_freeform_query'
+        user_sessions[from_number] = session
+        send_text_reply(from_number, "Of course! What are you looking for? (e.g., 'a cheap cafe' or 'something fun for a date')")
+    elif reply_id == 'browse_categories':
+        send_category_list_message(from_number)
+    elif reply_id == 'personalize':
+        session['state'] = 'awaiting_budget'
+        user_sessions[from_number] = session
+        send_text_reply(from_number, "Great! Let's find the perfect spot. What's your budget? (e.g., cheap, moderate, or expensive)")
+    elif reply_id == 'surprise_me':
+        send_surprise_me(from_number)
+    elif reply_id in PLACES:
+        # This handles a selection from the category list
+        send_recommendations(from_number, {'category': reply_id})
+
+def handle_ongoing_conversation(from_number, message, session):
+    """Handles multi-turn conversations like personalization or AI search."""
+    current_state = session.get('state')
+
+    if current_state == 'awaiting_freeform_query':
+        ai_response = get_intent_and_preferences_from_ai(message)
+        send_recommendations(from_number, ai_response.get('preferences', {}))
+        user_sessions.pop(from_number, None) # End session
+    
+    elif current_state in ['awaiting_budget', 'awaiting_vibe', 'awaiting_group']:
+        handle_personalization_flow(from_number, message, session)
 
 def handle_personalization_flow(from_number, message, session):
     current_state = session.get('state')
@@ -211,12 +232,10 @@ def filter_places(preferences, relax_criteria=None):
 
 def send_recommendations(from_number, preferences):
     """Formats and sends recommendations, with smart fallback logic."""
-    # First, try a strict search
     recommendations = filter_places(preferences)
     fallback_message = ""
 
-    # If no results, try relaxing criteria one by one
-    if not recommendations:
+    if not recommendations and preferences: # Only fallback if there are filters
         for criteria in ['budget', 'vibe', 'group']:
             relaxed_recs = filter_places(preferences, relax_criteria=criteria)
             if relaxed_recs:
@@ -225,7 +244,7 @@ def send_recommendations(from_number, preferences):
                 break
 
     if not recommendations:
-        send_text_reply(from_number, "I couldn't find any spots that match your criteria, even with some flexibility. Try being a bit broader! Say 'Hi' to start over.")
+        send_text_reply(from_number, "I couldn't find any spots that match your criteria, even with some flexibility. Say 'Hi' to start over.")
         user_sessions.pop(from_number, None)
         return
     
@@ -233,7 +252,7 @@ def send_recommendations(from_number, preferences):
     for loc in recommendations[:3]:
         reply_text += f"*{loc['name']}*\n{loc['desc']}\nDirections: {loc['url']}\n\n"
     
-    reply_text += "Say 'Hi' to start a new search."
+    reply_text += "Say 'Hi' to return to the main menu."
     send_text_reply(from_number, reply_text.strip())
     user_sessions.pop(from_number, None)
 
@@ -249,7 +268,7 @@ def send_surprise_me(from_number):
         f"🎲 Surprise! Here's a random suggestion:\n\n"
         f"*{random_place['name']}*\n{random_place['desc']}\n"
         f"Directions: {random_place['url']}\n\n"
-        "Say 'Hi' to start over."
+        "Say 'Hi' to return to the main menu."
     )
     send_text_reply(from_number, reply_text)
     user_sessions.pop(from_number, None)
@@ -264,6 +283,37 @@ def send_text_reply(from_number, text):
         )
     except Exception as e:
         print(f"Error sending Twilio message: {e}")
+
+def send_main_menu(from_number):
+    """Sends the main menu using a Twilio Content Template."""
+    if not main_menu_sid:
+        send_text_reply(from_number, "The main menu is not configured.")
+        return
+    client.messages.create(
+        from_=f'whatsapp:{twilio_whatsapp_number}',
+        to=from_number,
+        content_sid=main_menu_sid,
+        content_variables=json.dumps({
+            '1': "Hi! I'm Xperience, your AI guide to Jamshedpur. Please choose an option to start:",
+            '2': "Main Menu"
+        })
+    )
+
+def send_category_list_message(from_number):
+    """Sends the category list using a Twilio Content Template."""
+    if not category_list_sid:
+        send_text_reply(from_number, "The category menu is not configured.")
+        return
+    client.messages.create(
+        from_=f'whatsapp:{twilio_whatsapp_number}',
+        to=from_number,
+        content_sid=category_list_sid,
+        content_variables=json.dumps({
+            '1': 'Xperience Categories',
+            '2': 'Please select a category to explore.',
+            '3': 'Categories'
+        })
+    )
 
 
 if __name__ == "__main__":
