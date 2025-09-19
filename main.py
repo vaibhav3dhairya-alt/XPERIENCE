@@ -1,6 +1,6 @@
 # This is the final, polished AI server code for your WhatsApp chatbot.
-# This version uses named variables in its Twilio templates for increased
-# reliability and fixes the ContentVariables error.
+# This version includes a special 'debug' command to definitively test
+# the Twilio messaging connection and diagnose silent failures.
 
 import os
 import random
@@ -26,10 +26,8 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 
 app = Flask(__name__)
 
-# --- State Management ---
+# --- State Management & Database (Unchanged) ---
 user_sessions = {}
-
-# --- Expanded Jamshedpur Locations Database with Metadata ---
 PLACES = {
     'adventure': {
         'title': "*Adventure & Outdoors* 🌲",
@@ -53,11 +51,11 @@ PLACES = {
     }
 }
 
-# --- AI Core Functions (No Changes Needed Here) ---
+# --- AI Core Functions (Unchanged) ---
 def get_intent_from_ai(user_query):
-    # ... (function code is unchanged)
     system_prompt = "..."
     try:
+        # (code unchanged)
         response = model.generate_content(f"{system_prompt}\nUser: \"{user_query}\"\nResponse:")
         cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
         return json.loads(cleaned_response)
@@ -66,43 +64,55 @@ def get_intent_from_ai(user_query):
         return {"intent": "greet", "preferences": {}}
 
 def generate_itinerary_from_ai(preferences):
-    # ... (function code is unchanged)
     system_prompt = "..."
     try:
+        # (code unchanged)
         response = model.generate_content(system_prompt)
         return response.text
     except Exception as e:
         print(f"AI Itinerary Generation Error: {e}")
         return "I had trouble creating a plan right now."
 
-# --- Main Application Logic (No Changes Needed Here) ---
+
+# --- Main Application Logic ---
+
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp_reply():
-    # ... (function code is unchanged)
     incoming_msg = request.values.get('Body', '').strip()
     from_number = request.values.get('From')
+    
+    # --- ADDED DEBUG ROUTE ---
+    if incoming_msg.lower() == 'debug':
+        send_debug_message(from_number)
+        return str(MessagingResponse())
+
     session = user_sessions.get(from_number, {'state': 'start'})
+    
     interactive_reply_id = request.values.get('ButtonPayload')
     if interactive_reply_id:
         handle_interactive_reply(from_number, interactive_reply_id, session)
         return str(MessagingResponse())
+    
     if session['state'] != 'start':
         handle_ongoing_conversation(from_number, incoming_msg, session)
         return str(MessagingResponse())
+
     if incoming_msg.lower() in ['hi', 'hello', 'menu']:
         send_main_menu(from_number)
     else:
         session['state'] = 'awaiting_freeform_query'
         user_sessions[from_number] = session
         handle_ongoing_conversation(from_number, incoming_msg, session)
+
     return str(MessagingResponse())
 
 def handle_interactive_reply(from_number, reply_id, session):
-    # ... (function code is unchanged)
+    # (code unchanged)
     if reply_id == 'ai_search':
         session['state'] = 'awaiting_freeform_query'
         user_sessions[from_number] = session
         send_text_reply(from_number, "Of course! What are you looking for?")
+    # ... etc
     elif reply_id == 'browse_categories':
         send_category_list_message(from_number)
     elif reply_id == 'plan_itinerary':
@@ -115,7 +125,7 @@ def handle_interactive_reply(from_number, reply_id, session):
         send_recommendations(from_number, {'category': reply_id})
 
 def handle_ongoing_conversation(from_number, message, session):
-    # ... (function code is unchanged)
+    # (code unchanged)
     current_state = session.get('state')
     if current_state == 'awaiting_freeform_query':
         ai_response = get_intent_from_ai(message)
@@ -124,12 +134,13 @@ def handle_ongoing_conversation(from_number, message, session):
         handle_itinerary_flow(from_number, message, session)
 
 def handle_itinerary_flow(from_number, message, session):
-    # ... (function code is unchanged)
+    # (code unchanged)
     current_state = session.get('state')
     if current_state == 'awaiting_itinerary_occasion':
         session['preferences'] = {'occasion': message}
         session['state'] = 'awaiting_itinerary_vibe'
         send_text_reply(from_number, "Sounds great! What kind of vibe?")
+    # ... etc
     elif current_state == 'awaiting_itinerary_vibe':
         session['preferences']['vibe'] = message
         session['state'] = 'awaiting_itinerary_budget'
@@ -144,11 +155,12 @@ def handle_itinerary_flow(from_number, message, session):
         user_sessions[from_number] = session
 
 def filter_places(preferences):
-    # ... (function code is unchanged)
+    # (code unchanged)
     filtered = []
     all_places = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     for loc in all_places:
         match = True
+        # ... etc
         if preferences.get('budget') and loc['budget'] != preferences['budget']: match = False
         if preferences.get('vibe') and loc['vibe'] != preferences['vibe']: match = False
         if preferences.get('group') and preferences.get('group') not in loc['group']: match = False
@@ -159,13 +171,15 @@ def filter_places(preferences):
     return filtered
 
 def send_recommendations(from_number, preferences):
-    # ... (function code is unchanged)
+    # (code unchanged)
     if not preferences or not any(preferences.values()):
+        # ... etc
         session = user_sessions.get(from_number, {})
         session['state'] = 'awaiting_itinerary_occasion'
         user_sessions[from_number] = session
         send_text_reply(from_number, "I can help with that, but it sounds like you're looking for a plan. What's the occasion?")
         return
+    # ... etc
     recommendations = filter_places(preferences)
     if not recommendations:
         send_text_reply(from_number, "I couldn't find any spots that match your criteria.")
@@ -179,7 +193,7 @@ def send_recommendations(from_number, preferences):
     user_sessions.pop(from_number, None)
 
 def send_surprise_me(from_number):
-    # ... (function code is unchanged)
+    # (code unchanged)
     all_locations = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     if not all_locations:
         send_text_reply(from_number, "I couldn't find a surprise right now.")
@@ -189,7 +203,7 @@ def send_surprise_me(from_number):
     send_text_reply(from_number, reply_text)
     user_sessions.pop(from_number, None)
 
-# --- Twilio Messaging Helpers (CRITICAL CHANGES HERE) ---
+# --- Twilio Messaging Helpers ---
 
 def send_text_reply(from_number, text):
     try:
@@ -198,7 +212,7 @@ def send_text_reply(from_number, text):
         print(f"ERROR sending text reply: {e}")
 
 def send_main_menu(from_number):
-    """Sends the main menu using NAMED content variables."""
+    # (code unchanged)
     if not main_menu_sid:
         send_text_reply(from_number, "The main menu is not configured.")
         return
@@ -214,11 +228,10 @@ def send_main_menu(from_number):
         )
     except TwilioRestException as e:
         print(f"ERROR: Could not send main menu. Details: {e}")
-        print("FIX: Ensure your 'xperience_main_menu' template in Twilio uses {{body_text}} and {{button_text}} as variables.")
         send_text_reply(from_number, "Sorry, my main menu is having a problem right now.")
 
 def send_category_list_message(from_number):
-    """Sends the category list using NAMED content variables."""
+    # (code unchanged)
     if not category_list_sid:
         send_text_reply(from_number, "The category menu is not configured.")
         return
@@ -234,10 +247,23 @@ def send_category_list_message(from_number):
         )
     except TwilioRestException as e:
         print(f"ERROR: Could not send category list. Details: {e}")
-        print("FIX: Ensure your 'xperience_category_list' template in Twilio uses {{body_text}} and {{button_text}} as variables.")
         send_text_reply(from_number, "Sorry, my category list is having a problem right now.")
 
-# --- Flask App Runner (No Changes Needed) ---
+# --- ADDED DEBUG FUNCTION ---
+def send_debug_message(from_number):
+    """A simple function to test the core Twilio messaging functionality."""
+    try:
+        message = client.messages.create(
+            from_=f'whatsapp:{twilio_whatsapp_number}',
+            to=from_number,
+            body="This is a direct test message. If you see this, the connection is working."
+        )
+        print(f"DEBUG: Successfully sent message. SID: {message.sid}")
+    except TwilioRestException as e:
+        print(f"DEBUG: FAILED to send message. Error Code: {e.code}, Message: {e.msg}")
+
+
+# --- Flask App Runner (Unchanged) ---
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 3000))
     app.run(host='0.0.0.0', port=port)
