@@ -259,8 +259,9 @@ def send_category_list_message(from_number):
     client.messages.create(
         from_=f'whatsapp:{twilio_whatsapp_number}', to=from_number, content_sid=category_list_sid,
         content_variables=json.dumps({
-            '1': "Xperience Categories\n\nPlease select a category to explore.", 
-            '2': "Categories"
+            '1': "Xperience Categories", 
+            '2': "Please select a category to explore.",
+            '3': "Categories"
         })
     )
 
