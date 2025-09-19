@@ -1,6 +1,7 @@
 # This is the final, polished AI server code for your WhatsApp chatbot.
 # This version features four significantly distinct user modes, including
-# an AI-powered Itinerary Planner, to provide a versatile user experience.
+# an AI-powered Itinerary Planner, and is designed to work with the corrected
+# Twilio List Picker templates.
 
 import os
 import random
@@ -171,7 +172,8 @@ def handle_itinerary_flow(from_number, message, session):
         send_text_reply(from_number, itinerary)
         user_sessions.pop(from_number, None)
 
-    user_sessions[from_number] = session
+    if from_number in user_sessions:
+        user_sessions[from_number] = session
 
 # --- Filtering and Response Functions ---
 
@@ -183,7 +185,7 @@ def filter_places(preferences):
         match = True
         if preferences.get('budget') and loc['budget'] != preferences['budget']: match = False
         if preferences.get('vibe') and loc['vibe'] != preferences['vibe']: match = False
-        if preferences.get('group') and preferences['group'] not in loc['group']: match = False
+        if preferences.get('group') and preferences.get('group') not in loc['group']: match = False
         if preferences.get('category'):
             loc_cat_key = next((key for key, val in PLACES.items() if loc in val['locations']), None)
             if loc_cat_key != preferences['category']: match = False
@@ -244,7 +246,10 @@ def send_main_menu(from_number):
         return
     client.messages.create(
         from_=f'whatsapp:{twilio_whatsapp_number}', to=from_number, content_sid=main_menu_sid,
-        content_variables=json.dumps({'1': "Hi! I'm Xperience, your AI guide to Jamshedpur. Please choose an option to start:", '2': "Main Menu"})
+        content_variables=json.dumps({
+            '1': "Hi! I'm Xperience, your AI guide to Jamshedpur. Please choose an option to start:", 
+            '2': "Main Menu"
+        })
     )
 
 def send_category_list_message(from_number):
@@ -253,7 +258,10 @@ def send_category_list_message(from_number):
         return
     client.messages.create(
         from_=f'whatsapp:{twilio_whatsapp_number}', to=from_number, content_sid=category_list_sid,
-        content_variables=json.dumps({'1': 'Xperience Categories', '2': 'Please select a category to explore.', '3': 'Categories'})
+        content_variables=json.dumps({
+            '1': "Xperience Categories\n\nPlease select a category to explore.", 
+            '2': "Categories"
+        })
     )
 
 if __name__ == "__main__":
