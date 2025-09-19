@@ -1,7 +1,6 @@
 # This is the final, polished AI server code for your WhatsApp chatbot.
-# This version features four significantly distinct user modes, including
-# an AI-powered Itinerary Planner, and is designed to work with the corrected
-# Twilio List Picker templates.
+# This version uses named variables in its Twilio templates for increased
+# reliability and fixes the ContentVariables error.
 
 import os
 import random
@@ -241,27 +240,32 @@ def send_text_reply(from_number, text):
         print(f"Error sending Twilio message: {e}")
 
 def send_main_menu(from_number):
+    """Sends the main menu using named content variables."""
     if not main_menu_sid:
         send_text_reply(from_number, "The main menu is not configured.")
         return
     client.messages.create(
-        from_=f'whatsapp:{twilio_whatsapp_number}', to=from_number, content_sid=main_menu_sid,
+        from_=f'whatsapp:{twilio_whatsapp_number}', 
+        to=from_number, 
+        content_sid=main_menu_sid,
         content_variables=json.dumps({
-            '1': "Hi! I'm Xperience, your AI guide to Jamshedpur. Please choose an option to start:", 
-            '2': "Main Menu"
+            'body_text': "Hi! I'm Xperience, your AI guide to Jamshedpur. Please choose an option to start:", 
+            'button_text': "Main Menu"
         })
     )
 
 def send_category_list_message(from_number):
+    """Sends the category list using named content variables."""
     if not category_list_sid:
         send_text_reply(from_number, "The category menu is not configured.")
         return
     client.messages.create(
-        from_=f'whatsapp:{twilio_whatsapp_number}', to=from_number, content_sid=category_list_sid,
+        from_=f'whatsapp:{twilio_whatsapp_number}', 
+        to=from_number, 
+        content_sid=category_list_sid,
         content_variables=json.dumps({
-            '1': "Xperience Categories", 
-            '2': "Please select a category to explore.",
-            '3': "Categories"
+            'body_text': "Please select a category to explore.", 
+            'button_text': "Categories"
         })
     )
 
