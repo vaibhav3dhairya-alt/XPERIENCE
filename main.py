@@ -1,6 +1,6 @@
 # This is the final, polished AI server code for your WhatsApp chatbot.
-# This version includes a special 'debug' command to definitively test
-# the Twilio messaging connection and diagnose silent failures.
+# This version includes a "superdebug" command to definitively test
+# the Twilio connection and print all configuration variables for diagnosis.
 
 import os
 import random
@@ -55,7 +55,6 @@ PLACES = {
 def get_intent_from_ai(user_query):
     system_prompt = "..."
     try:
-        # (code unchanged)
         response = model.generate_content(f"{system_prompt}\nUser: \"{user_query}\"\nResponse:")
         cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
         return json.loads(cleaned_response)
@@ -66,7 +65,6 @@ def get_intent_from_ai(user_query):
 def generate_itinerary_from_ai(preferences):
     system_prompt = "..."
     try:
-        # (code unchanged)
         response = model.generate_content(system_prompt)
         return response.text
     except Exception as e:
@@ -81,9 +79,9 @@ def whatsapp_reply():
     incoming_msg = request.values.get('Body', '').strip()
     from_number = request.values.get('From')
     
-    # --- ADDED DEBUG ROUTE ---
-    if incoming_msg.lower() == 'debug':
-        send_debug_message(from_number)
+    # --- SUPER DEBUG ROUTE ---
+    if incoming_msg.lower() == 'superdebug':
+        send_super_debug_message(from_number)
         return str(MessagingResponse())
 
     session = user_sessions.get(from_number, {'state': 'start'})
@@ -107,12 +105,10 @@ def whatsapp_reply():
     return str(MessagingResponse())
 
 def handle_interactive_reply(from_number, reply_id, session):
-    # (code unchanged)
     if reply_id == 'ai_search':
         session['state'] = 'awaiting_freeform_query'
         user_sessions[from_number] = session
         send_text_reply(from_number, "Of course! What are you looking for?")
-    # ... etc
     elif reply_id == 'browse_categories':
         send_category_list_message(from_number)
     elif reply_id == 'plan_itinerary':
@@ -125,7 +121,6 @@ def handle_interactive_reply(from_number, reply_id, session):
         send_recommendations(from_number, {'category': reply_id})
 
 def handle_ongoing_conversation(from_number, message, session):
-    # (code unchanged)
     current_state = session.get('state')
     if current_state == 'awaiting_freeform_query':
         ai_response = get_intent_from_ai(message)
@@ -134,13 +129,11 @@ def handle_ongoing_conversation(from_number, message, session):
         handle_itinerary_flow(from_number, message, session)
 
 def handle_itinerary_flow(from_number, message, session):
-    # (code unchanged)
     current_state = session.get('state')
     if current_state == 'awaiting_itinerary_occasion':
         session['preferences'] = {'occasion': message}
         session['state'] = 'awaiting_itinerary_vibe'
         send_text_reply(from_number, "Sounds great! What kind of vibe?")
-    # ... etc
     elif current_state == 'awaiting_itinerary_vibe':
         session['preferences']['vibe'] = message
         session['state'] = 'awaiting_itinerary_budget'
@@ -155,12 +148,10 @@ def handle_itinerary_flow(from_number, message, session):
         user_sessions[from_number] = session
 
 def filter_places(preferences):
-    # (code unchanged)
     filtered = []
     all_places = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     for loc in all_places:
         match = True
-        # ... etc
         if preferences.get('budget') and loc['budget'] != preferences['budget']: match = False
         if preferences.get('vibe') and loc['vibe'] != preferences['vibe']: match = False
         if preferences.get('group') and preferences.get('group') not in loc['group']: match = False
@@ -171,15 +162,12 @@ def filter_places(preferences):
     return filtered
 
 def send_recommendations(from_number, preferences):
-    # (code unchanged)
     if not preferences or not any(preferences.values()):
-        # ... etc
         session = user_sessions.get(from_number, {})
         session['state'] = 'awaiting_itinerary_occasion'
         user_sessions[from_number] = session
         send_text_reply(from_number, "I can help with that, but it sounds like you're looking for a plan. What's the occasion?")
         return
-    # ... etc
     recommendations = filter_places(preferences)
     if not recommendations:
         send_text_reply(from_number, "I couldn't find any spots that match your criteria.")
@@ -193,7 +181,6 @@ def send_recommendations(from_number, preferences):
     user_sessions.pop(from_number, None)
 
 def send_surprise_me(from_number):
-    # (code unchanged)
     all_locations = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     if not all_locations:
         send_text_reply(from_number, "I couldn't find a surprise right now.")
@@ -212,7 +199,6 @@ def send_text_reply(from_number, text):
         print(f"ERROR sending text reply: {e}")
 
 def send_main_menu(from_number):
-    # (code unchanged)
     if not main_menu_sid:
         send_text_reply(from_number, "The main menu is not configured.")
         return
@@ -231,7 +217,6 @@ def send_main_menu(from_number):
         send_text_reply(from_number, "Sorry, my main menu is having a problem right now.")
 
 def send_category_list_message(from_number):
-    # (code unchanged)
     if not category_list_sid:
         send_text_reply(from_number, "The category menu is not configured.")
         return
@@ -249,18 +234,38 @@ def send_category_list_message(from_number):
         print(f"ERROR: Could not send category list. Details: {e}")
         send_text_reply(from_number, "Sorry, my category list is having a problem right now.")
 
-# --- ADDED DEBUG FUNCTION ---
-def send_debug_message(from_number):
-    """A simple function to test the core Twilio messaging functionality."""
+# --- SUPER DEBUG FUNCTION ---
+def send_super_debug_message(from_number):
+    """Prints all config and attempts a send, for definitive debugging."""
+    print("\n--- SUPER DEBUG INITIATED ---")
+    print(f"Recipient Number: {from_number}")
+    
+    # Print variables (masking secrets)
+    print(f"TWILIO_ACCOUNT_SID: {account_sid[:5]}...{account_sid[-4:] if account_sid else 'Not Set'}")
+    print(f"TWILIO_AUTH_TOKEN: {'*' * 10 if auth_token else 'Not Set'}")
+    print(f"GEMINI_API_KEY: {'*' * 10 if gemini_api_key else 'Not Set'}")
+    print(f"TWILIO_WHATSAPP_NUMBER: {twilio_whatsapp_number}")
+    print(f"TWILIO_MAIN_MENU_SID: {main_menu_sid}")
+    print(f"TWILIO_CATEGORY_LIST_SID: {category_list_sid}")
+    
+    print("\nAttempting to send a direct message...")
     try:
         message = client.messages.create(
             from_=f'whatsapp:{twilio_whatsapp_number}',
             to=from_number,
-            body="This is a direct test message. If you see this, the connection is working."
+            body="This is the SUPER DEBUG test message. If you see this, everything is working."
         )
-        print(f"DEBUG: Successfully sent message. SID: {message.sid}")
+        print(f"--- SUPER DEBUG SUCCESS ---")
+        print(f"Message sent successfully. SID: {message.sid}")
+        print("The problem is likely with WhatsApp blocking, not the code.")
     except TwilioRestException as e:
-        print(f"DEBUG: FAILED to send message. Error Code: {e.code}, Message: {e.msg}")
+        print(f"--- SUPER DEBUG FAILED ---")
+        print(f"Twilio API Error Code: {e.code}")
+        print(f"Twilio API Error Message: {e.msg}")
+        print("The problem is with the Twilio configuration or account status.")
+    except Exception as e:
+        print(f"--- SUPER DEBUG FAILED ---")
+        print(f"A non-Twilio error occurred: {e}")
 
 
 # --- Flask App Runner (Unchanged) ---
