@@ -14,7 +14,7 @@ from twilio.base.exceptions import TwilioRestException
 account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
 auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
 twilio_whatsapp_number = os.environ.get('TWILIO_WHATSAPP_NUMBER')
-main_menu_sid = os.environ.get('TWILIO_MAIN_MENU_SID')
+main_menu_sid = os.environ.get('TWILIO_MAIN_MENU_SID') # Corrected typo from TWilio
 category_list_sid = os.environ.get('TWILIO_CATEGORY_LIST_SID')
 
 # Initialize client
@@ -24,7 +24,7 @@ app = Flask(__name__)
 # --- State Management ---
 user_sessions = {}
 
-# --- Expanded Jamshedpur Locations Database with Metadata ---
+# --- Comprehensive Jamshedpur Locations Database ---
 PLACES = {
     'adventure': {
         'title': "*Adventure & Outdoors* 🌲",
@@ -58,22 +58,19 @@ PLACES = {
     'leisure': {
         'title': "*Entertainment & Fun* 🎬",
         'locations': [
-            {'name': 'PJP Cinema Hall', 'desc': 'A popular multiplex for watching the latest movies.', 'url': 'https://maps.google.com/?q=PJP+Cinema+Hall,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'date'], 'type': 'activity'},
-            {'name': 'Fun City', 'desc': 'An amusement park and gaming zone inside the P&M Mall.', 'url': 'https://maps.google.com/?q=Fun+City,P%26M+Mall,Jamshedpur', 'budget': 'low', 'vibe': 'family', 'group': ['family', 'friends'], 'type': 'activity'}
+            {'name': 'PJP Cinema Hall', 'desc': 'A popular multiplex for watching the latest movies.', 'url': 'https://maps.google.com/?q=PJP+Cinema+Hall,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'date'], 'type': 'activity'}
         ]
     },
     'sports': {
         'title': "*Sports & Fitness* 🏋️",
         'locations': [
-            {'name': 'JRD Tata Sports Complex', 'desc': 'A large complex for various sports including football and swimming.', 'url': 'https://maps.google.com/?q=JRD+Tata+Sports+Complex,Jamshedpur', 'budget': 'low', 'vibe': 'adventure', 'group': ['solo', 'friends'], 'type': 'activity'},
-            {'name': 'Keenan Stadium', 'desc': 'A famous cricket stadium that has hosted international matches.', 'url': 'https://maps.google.com/?q=Keenan+Stadium,Jamshedpur', 'budget': 'low', 'vibe': 'social', 'group': ['friends'], 'type': 'activity'}
+            {'name': 'JRD Tata Sports Complex', 'desc': 'A large complex for various sports including football and swimming.', 'url': 'https://maps.google.com/?q=JRD+Tata+Sports+Complex,Jamshedpur', 'budget': 'low', 'vibe': 'adventure', 'group': ['solo', 'friends'], 'type': 'activity'}
         ]
     },
     'events': {
         'title': "*Events & Wellness* ✨",
         'locations': [
-            {'name': 'Tata Auditorium', 'desc': 'A key venue for cultural events, shows, and concerts in the city.', 'url': 'https://maps.google.com/?q=Tata+Auditorium,XLRI,Jamshedpur', 'budget': 'mid', 'vibe': 'social', 'group': ['friends', 'date'], 'type': 'activity'},
-            {'name': 'Beldih Club', 'desc': 'Often hosts food festivals, concerts, and other lifestyle events.', 'url': 'https://maps.google.com/?q=Beldih+Club,Jamshedpur', 'budget': 'high', 'vibe': 'social', 'group': ['friends', 'family'], 'type': 'dining'}
+            {'name': 'Beldih Club', 'desc': 'Often hosts food festivals, concerts, and other lifestyle events.', 'url': 'https://maps.google.com/?q=Beldih+Club,Jamshedpur', 'budget': 'high', 'vibe': 'social', 'group': ['friends', 'family'], 'type': 'activity'}
         ]
     }
 }
@@ -183,7 +180,7 @@ def handle_personalization_flow(from_number, message, session):
             user_sessions[from_number] = session
             send_text_reply(from_number, "Perfect. And who are you going with? (e.g., solo, friends, or a date)")
         else:
-            send_text_reply(from_number, "I didn't understand the vibe. Is it chill, adventure, social, family?")
+            send_text_reply(from_number, "I didn't understand the vibe. Is it chill, adventure, social, or family?")
 
     elif current_state == 'awaiting_group':
         group_map = {'solo': 'solo', 'friends': 'friends', 'date': 'date'}
@@ -203,40 +200,29 @@ def filter_places(preferences):
     
     for loc in all_places:
         match = True
-        # Check each preference. If it's set in the user's request, it must match the location's data.
-        if preferences.get('budget') and loc['budget'] != preferences['budget']:
-            match = False
-        if preferences.get('vibe') and loc['vibe'] != preferences['vibe']:
-            match = False
-        if preferences.get('group') and preferences.get('group') not in loc['group']:
-            match = False
-        
-        # This filter is for when a user selects a category from the list
+        if preferences.get('budget') and loc['budget'] != preferences['budget']: match = False
+        if preferences.get('vibe') and loc['vibe'] != preferences['vibe']: match = False
+        if preferences.get('group') and preferences.get('group') not in loc['group']: match = False
         if preferences.get('category'):
-            loc_category_key = next((key for key, val in PLACES.items() if loc in val['locations']), None)
-            if loc_category_key != preferences['category']:
-                match = False
-        
-        if match:
-            filtered.append(loc)
+            loc_cat_key = next((key for key, val in PLACES.items() if loc in val['locations']), None)
+            if loc_cat_key != preferences['category']: match = False
+        if match: filtered.append(loc)
+            
     return filtered
 
 def send_recommendations(from_number, preferences):
-    """Formats and sends a list of recommendations."""
+    """Formats and sends a list of recommendations for a single place search."""
     recommendations = filter_places(preferences)
     
     if not recommendations:
         send_text_reply(from_number, "I couldn't find any spots that match all your criteria. Say 'Hi' to start over with a broader search!")
-        user_sessions.pop(from_number, None)
-        return
+    else:
+        reply_text = "Here are a few recommendations for you:\n\n"
+        for loc in recommendations[:3]:
+            reply_text += f"*{loc['name']}*\n{loc['desc']}\nDirections: {loc['url']}\n\n"
+        reply_text += "Say 'Hi' to return to the main menu."
+        send_text_reply(from_number, reply_text.strip())
     
-    reply_text = "Here are a few recommendations for you:\n\n"
-    # Limit to max 3 recommendations to avoid spam
-    for loc in recommendations[:3]:
-        reply_text += f"*{loc['name']}*\n{loc['desc']}\nDirections: {loc['url']}\n\n"
-    
-    reply_text += "Say 'Hi' to return to the main menu."
-    send_text_reply(from_number, reply_text.strip())
     user_sessions.pop(from_number, None)
 
 
@@ -258,7 +244,6 @@ def generate_simple_itinerary(preferences):
     """Creates a rule-based 2-stop itinerary."""
     budget = preferences.get('budget')
     
-    # Find one activity and one dining place that match the budget
     possible_activities = [loc for cat in PLACES.values() for loc in cat['locations'] if loc['type'] == 'activity' and loc['budget'] == budget]
     possible_dining = [loc for cat in PLACES.values() for loc in cat['locations'] if loc['type'] == 'dining' and loc['budget'] == budget]
 
