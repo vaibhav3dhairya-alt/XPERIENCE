@@ -1,6 +1,6 @@
 # This is the final, AI-powered server code for your WhatsApp chatbot.
-# This version features an asynchronous architecture to handle slow AI API
-# calls and prevent Twilio webhook timeouts.
+# This version features an asynchronous architecture and adds contextual
+# refinements to the AI conversation mode.
 
 import os
 import random
@@ -66,8 +66,16 @@ PLACES = {
 # --- AI Core Functions ---
 
 def get_intent_and_preferences_from_ai(user_query):
-    """Uses Gemini to perform NLU, extracting intent and preferences."""
-    system_prompt = "You are an NLU engine... (Full prompt omitted for brevity)"
+    """Uses Gemini to perform NLU, extracting intent and preferences, now including 'refine_search'."""
+    system_prompt = """
+    You are an NLU engine for a city guide chatbot. Analyze the user's message to extract their intent and any preferences.
+    Respond in JSON format only.
+    Intents: 'ask_for_recommendation', 'start_itinerary', 'ask_for_surprise', 'refine_search'.
+    If the user's message is a modification of a previous search (e.g., "cheaper", "something more chill", "show me adventure places instead"), the intent is 'refine_search'.
+    Preferences: 'category', 'budget', 'vibe', 'group'.
+    Map words like 'cheap' to 'low' budget, 'plan my evening' to 'start_itinerary'.
+    If the query is too vague (e.g., "suggest something"), the intent should be 'start_itinerary'.
+    """
     try:
         response = model.generate_content(f"{system_prompt}\nUser: \"{user_query}\"\nResponse:")
         cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
@@ -92,44 +100,52 @@ def generate_itinerary_from_ai(preferences):
 @app.route('/whatsapp', methods=['POST'])
 def whatsapp_reply():
     """
-    Handles incoming messages. For slow AI tasks, it responds immediately
-    and starts a background thread to do the real work.
+    Handles incoming messages, routing to the correct synchronous or asynchronous function.
     """
     incoming_msg = request.values.get('Body', '').strip()
     from_number = request.values.get('From')
     
-    session = user_sessions.get(from_number, {'state': 'start'})
+    session = user_sessions.get(from_number, {'state': 'start', 'last_query': {}})
     
     interactive_reply_id = request.values.get('ButtonPayload')
     if interactive_reply_id:
-        # Interactive replies are fast, handle them synchronously
         handle_interactive_reply(from_number, interactive_reply_id, session)
         return str(MessagingResponse()) 
     
     if session['state'] != 'start':
-        # Start background thread for ongoing conversations that require AI
         send_text_reply(from_number, "Processing your request... 🤔")
         thread = threading.Thread(target=process_ongoing_conversation_async, args=(from_number, incoming_msg, session))
         thread.start()
-        return str(MessagingResponse()) # Respond immediately to Twilio
+        return str(MessagingResponse())
 
     if incoming_msg.lower() in ['hi', 'hello', 'menu']:
         send_main_menu(from_number)
     else:
-        # Start background thread for a new freeform AI query
         send_text_reply(from_number, "Thinking... 🧠")
-        thread = threading.Thread(target=process_ai_request_async, args=(from_number, incoming_msg))
+        thread = threading.Thread(target=process_ai_request_async, args=(from_number, incoming_msg, session))
         thread.start()
 
-    return str(MessagingResponse()) # Respond immediately to Twilio
+    return str(MessagingResponse())
 
 # --- Asynchronous Processing Functions ---
 
-def process_ai_request_async(from_number, message):
-    """Runs in a background thread to handle a freeform AI query."""
-    print(f"BACKGROUND: Processing freeform query: '{message}'")
+def process_ai_request_async(from_number, message, session):
+    """Runs in a background thread to handle a freeform AI query or a refinement."""
+    print(f"BACKGROUND: Processing query: '{message}'")
     ai_response = get_intent_and_preferences_from_ai(message)
-    send_recommendations(from_number, ai_response.get('preferences', {}))
+    intent = ai_response.get('intent')
+    preferences = ai_response.get('preferences', {})
+
+    if intent == 'refine_search':
+        # Merge new preferences with the last query stored in the session
+        last_preferences = session.get('last_query', {})
+        # Filter out null values from new preferences before merging
+        updated_preferences = {k: v for k, v in preferences.items() if v is not None}
+        new_preferences = {**last_preferences, **updated_preferences}
+        send_recommendations(from_number, new_preferences, session)
+    else:
+        # It's a new search
+        send_recommendations(from_number, preferences, session)
 
 def process_ongoing_conversation_async(from_number, message, session):
     """Runs in a background thread to handle multi-turn conversations."""
@@ -153,9 +169,9 @@ def handle_interactive_reply(from_number, reply_id, session):
         user_sessions[from_number] = session
         send_text_reply(from_number, "I can plan something for you! What's the occasion? (e.g., a chill evening, a full day trip, etc.)")
     elif reply_id == 'surprise_me':
-        send_surprise_me(from_number) # This is fast, so no need for async
+        send_surprise_me(from_number)
     elif reply_id in PLACES:
-        send_recommendations(from_number, {'category': reply_id})
+        send_recommendations(from_number, {'category': reply_id}, session)
 
 def handle_itinerary_flow(from_number, message, session):
     """Manages the multi-turn conversation for building an itinerary with AI."""
@@ -175,10 +191,9 @@ def handle_itinerary_flow(from_number, message, session):
 
     elif current_state == 'awaiting_itinerary_budget':
         session['preferences']['budget'] = message.lower()
-        # This is the slow part, so it's handled in the background
         itinerary = generate_itinerary_from_ai(session['preferences'])
         send_text_reply(from_number, itinerary)
-        user_sessions.pop(from_number, None) # End session
+        user_sessions.pop(from_number, None)
 
 # --- Filtering and Response Functions ---
 
@@ -199,11 +214,9 @@ def filter_places(preferences):
             
     return filtered
 
-def send_recommendations(from_number, preferences):
-    """Formats and sends a list of recommendations from a direct AI query."""
+def send_recommendations(from_number, preferences, session):
+    """Formats and sends recommendations, and saves the query to the user's session."""
     if not preferences or not any(preferences.values()):
-        # If AI returns nothing, pivot to the itinerary builder
-        session = user_sessions.get(from_number, {})
         session['state'] = 'awaiting_itinerary_occasion'
         user_sessions[from_number] = session
         send_text_reply(from_number, "I can help with that, but it sounds like you're looking for a plan. What's the occasion? (e.g., a chill evening)")
@@ -217,20 +230,20 @@ def send_recommendations(from_number, preferences):
         reply_text = "Here are a few recommendations for you:\n\n"
         for loc in recommendations[:3]:
             reply_text += f"*{loc['name']}*\n{loc['desc']}\nDirections: {loc['url']}\n\n"
-        reply_text += "Say 'Hi' to return to the main menu."
+        reply_text += "You can refine this search by saying 'cheaper' or 'something for a date'. Say 'Hi' to start over."
         send_text_reply(from_number, reply_text.strip())
     
-    user_sessions.pop(from_number, None)
+    # Save the last successful query for potential refinement
+    session['last_query'] = preferences
+    user_sessions[from_number] = session
 
 def send_surprise_me(from_number):
     """Selects a random place and sends its details."""
     all_locations = [loc for cat_data in PLACES.values() for loc in cat_data['locations']]
     random_place = random.choice(all_locations)
     reply_text = (
-        f"🎲 Surprise! Here's a random suggestion:\n\n"
-        f"*{random_place['name']}*\n{random_place['desc']}\n"
-        f"Directions: {random_place['url']}\n\n"
-        "Say 'Hi' to return to the main menu."
+        f"🎲 Surprise!\n\n*{random_place['name']}*\n{random_place['desc']}\n"
+        f"Directions: {random_place['url']}\n\nSay 'Hi' to return to the main menu."
     )
     send_text_reply(from_number, reply_text)
     user_sessions.pop(from_number, None)
@@ -254,8 +267,7 @@ def send_main_menu(from_number):
             })
         )
     except TwilioRestException as e:
-        print(f"ERROR: Could not send main menu. Details: {e}")
-        send_text_reply(from_number, "Sorry, my main menu is having a problem right now.")
+        print(f"ERROR sending main menu: {e}")
 
 def send_category_list_message(from_number):
     try:
@@ -269,8 +281,7 @@ def send_category_list_message(from_number):
             })
         )
     except TwilioRestException as e:
-        print(f"ERROR: Could not send category list. Details: {e}")
-        send_text_reply(from_number, "Sorry, my category list is having a problem right now.")
+        print(f"ERROR sending category list: {e}")
 
 # --- Flask App Runner ---
 if __name__ == "__main__":
